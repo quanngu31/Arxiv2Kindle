@@ -23,7 +23,9 @@ import wget
 class Arxiv2KindleConverter:
     def __init__(self, arxiv_url: str):
         self.arxiv_url = arxiv_url
-        self.arxiv_id = re.match(r"((http|https)://.*?/)?(?P<id>\d{4}\.\d{4,5}(v\d{1,2})?)", self.arxiv_url).group("id")
+        self.arxiv_id = re.match(
+            r"((http|https)://.*?/)?(?P<id>\d{4}\.\d{4,5}(v\d{1,2})?)", self.arxiv_url
+        ).group("id")
         self.check_prerequisite()
 
     def check_prerequisite(self):
@@ -47,54 +49,55 @@ class Arxiv2KindleConverter:
         return arxiv_title, str(tar_filename)
 
     def process_tex(self, arxiv_dir, width, height, margin):
-        all_texfiles = [str(p) for p in Path(arxiv_dir).rglob("*.tex")]
         kindle_scribe_geometry = f"\\usepackage[papersize={{{width}in,{height}in}}, margin={margin}in]{{geometry}}\n"
 
-        # find files that already have a \usepackage{geometry} declaration
-        geometry_files = []
-        for texfile in all_texfiles:
-            with open(texfile, "r") as f:
-                content = f.read()
-            if re.search(r"\\usepackage(\[.*?\])?\{geometry\}", content):
-                geometry_files.append((texfile, content))
+        # find the main .tex file (the one with \documentclass) for compilation
+        main_texfile = None
+        tex_contents: dict[str, str] = {}
+        for path in Path(arxiv_dir).rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                content = path.read_text()
+            except (UnicodeDecodeError, PermissionError):
+                continue
+            texfile = str(path)
+            tex_contents[texfile] = content
+            if main_texfile is None and r"\documentclass" in content:
+                main_texfile = texfile
+        if main_texfile is None:
+            raise FileNotFoundError("Could not find main .tex file")
+        print(f"Main file is {main_texfile}", file=sys.stderr)
+
+        # Find files that already have a \usepackage{geometry} declaration (may differ from main)
+        geometry_files = [
+            f
+            for f, c in tex_contents.items()
+            if re.search(r"\\usepackage(\[.*?\])?\{geometry\}", c)
+        ]
 
         if len(geometry_files) > 1:
             raise RuntimeError(
-                f"Found \\usepackage{{geometry}} in multiple files: {[f for f, _ in geometry_files]}"
+                f"Found \\usepackage{{geometry}} in multiple files: {geometry_files}"
             )
         elif len(geometry_files) == 1:
-            target_file, content = geometry_files[0]
+            target_file = geometry_files[0]
             print(f"Overwriting geometry in {target_file}", file=sys.stderr)
             new_content = re.sub(
                 r"\\usepackage(\[.*?\])?\{geometry\}",
                 lambda _: kindle_scribe_geometry.rstrip("\n"),
-                content,
+                tex_contents[target_file],
             )
             os.rename(target_file, target_file + ".bak")
             with open(target_file, "w") as f:
                 f.write(new_content)
-            main_texfile = target_file
         else:
-            # fallback: find the main .tex file by \documentclass and inject geometry
-            main_texfile = None
-            for texfile in all_texfiles:
-                with open(texfile, "r") as f:
-                    content = f.read()
-                if r"\documentclass" in content:
-                    main_texfile = texfile
-                    print(f"Main file is {main_texfile}", file=sys.stderr)
-                    break
-            if main_texfile is None:
-                raise FileNotFoundError("Could not find main .tex file")
-
-            with open(main_texfile, "r") as f:
-                src = f.readlines()
-
+            # No geometry package found — inject before \begin{document} in the main file
+            src = tex_contents[main_texfile].splitlines(keepends=True)
             for i, line in enumerate(src):
                 if line.startswith(r"\begin{document}"):
                     src.insert(i, kindle_scribe_geometry)
                     break
-
             os.rename(main_texfile, main_texfile + ".bak")
             with open(main_texfile, "w") as f:
                 f.writelines(src)
@@ -119,7 +122,6 @@ class Arxiv2KindleConverter:
             shutil.copy(pdf_file, output_pdf)
             print(f"PDF File for Kindle: {output_pdf}")
 
-
     # def send_email(self, pdf_file, arxiv_id, arxiv_title, gmail, kindle_mail):
     #     msg = MIMEMultipart()
     #     pdf_part = MIMEApplication(open(pdf_file, 'rb').read(), _subtype='pdf')
@@ -143,7 +145,9 @@ def main(
     arxiv_url: str = typer.Option(..., "--arxiv-url", "-u", help="arXiv paper URL"),
     width: float = typer.Option(5.25, "--width", "-w", help="Paper width in inches"),
     height: float = typer.Option(7, "--height", "-h", help="Paper height in inches"),
-    margin: float = typer.Option(0.45, "--margin", "-m", help="Margin in inches (0.0 - 1.0)"),
+    margin: float = typer.Option(
+        0.45, "--margin", "-m", help="Margin in inches (0.0 - 1.0)"
+    ),
     gmail: Optional[str] = typer.Option(
         None, "--gmail", "-g", help="Gmail address for sending to Kindle"
     ),
