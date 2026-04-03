@@ -2,7 +2,7 @@
 
 Arxiv2Scribe is a simple script that converts LaTeX source (downloaded from Arxiv) and recompiles it to better fit the **Kindle Scribe**.
 
-You may change the width and heith settings to better fit your device. However, the code shipped with default settings tailored to the Kindle Scribe (specifically the 2024 version.)
+You may change the width and height settings to better fit your device. However, the code shipped with default settings *opinionatedly* tailored to the Kindle Scribe (specifically the 2024 version.)
 
 **Notes:** This is a fork from [Arxiv2Kindle](https://github.com/soumik12345/Arxiv2Kindle).
 
